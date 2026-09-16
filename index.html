@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Output Renderer Probe</title>
+<meta name="description" content="A throwaway custom output renderer that shows exactly what LangSmith posts into the iframe for the selected run.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root { color-scheme: light dark; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+  :root {
+    --ground: #f6f8fa;
+    --panel: #ffffff;
+    --panel-sunk: #f1f4f7;
+    --ink: #171d29;
+    --ink-mid: #4d5a6d;
+    --ink-soft: #78869b;
+    --line: #dfe5ec;
+    --line-soft: #ebeff4;
+    --accent: #0b6e85;
+    --accent-soft: #e2f1f5;
+    --ok: #0f7043;
+    --ok-soft: #e3f3ea;
+    --wait: #8a5a00;
+    --wait-soft: #fbf0da;
+    --tok-key: #0b6e85;
+    --tok-str: #8a3a6b;
+    --tok-num: #8a5a00;
+    --tok-lit: #4d5a6d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1117;
+      --panel: #141a23;
+      --panel-sunk: #0f151d;
+      --ink: #e7ecf3;
+      --ink-mid: #a3b0c2;
+      --ink-soft: #7c8798;
+      --line: #232c39;
+      --line-soft: #1b2330;
+      --accent: #4bc3dd;
+      --accent-soft: #0c2e38;
+      --ok: #52c98a;
+      --ok-soft: #102c1e;
+      --wait: #e0b25e;
+      --wait-soft: #2e2413;
+      --tok-key: #4bc3dd;
+      --tok-str: #e79bc4;
+      --tok-num: #e0b25e;
+      --tok-lit: #a3b0c2;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1117;
+    --panel: #141a23;
+    --panel-sunk: #0f151d;
+    --ink: #e7ecf3;
+    --ink-mid: #a3b0c2;
+    --ink-soft: #7c8798;
+    --line: #232c39;
+    --line-soft: #1b2330;
+    --accent: #4bc3dd;
+    --accent-soft: #0c2e38;
+    --ok: #52c98a;
+    --ok-soft: #102c1e;
+    --wait: #e0b25e;
+    --wait-soft: #2e2413;
+    --tok-key: #4bc3dd;
+    --tok-str: #e79bc4;
+    --tok-num: #e0b25e;
+    --tok-lit: #a3b0c2;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    padding-inline: 16px;
+    padding-block: 18px 22px;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 6px;
+  }
+  h1 {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .lede {
+    margin: 5px 0 0;
+    color: var(--ink-mid);
+    max-width: 62ch;
+  }
+
+  /* status strip: one grouped object, not four cards */
+  .strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .strip > div {
+    padding: 11px 13px;
+    border-left: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+  .strip > div:first-child { border-left: 0; }
+  .strip dt {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 4px;
+  }
+  .strip dd {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: break-word;
+  }
+  .strip dd.mono {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px 2px 7px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .pill.is-wait { background: var(--wait-soft); color: var(--wait); }
+  .pill.is-ok { background: var(--ok-soft); color: var(--ok); }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; flex: none;
+  }
+  .pill.is-wait .dot { animation: blip 1.4s ease-in-out infinite; }
+  @keyframes blip { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) {
+    .pill.is-wait .dot { animation: none; }
+  }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 760px) {
+    .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .strip > div:nth-child(3) { border-left: 0; }
+    .strip > div:nth-child(n+3) { border-top: 1px solid var(--line-soft); }
+    .cols { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-width: 0;
+  }
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 13px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .panel-head h2 {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin: 0;
+  }
+  .panel-note {
+    font-size: 11px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* derived facts list */
+  dl.facts { margin: 0; padding: 4px 0; }
+  dl.facts > div {
+    display: grid;
+    grid-template-columns: 11ch minmax(0, 1fr);
+    gap: 10px;
+    padding: 6px 13px;
+    align-items: start;
+  }
+  dl.facts > div + div { border-top: 1px solid var(--line-soft); }
+  dl.facts dt {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    padding-top: 1px;
+    overflow-wrap: break-word;
+  }
+  dl.facts dd {
+    margin: 0;
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--ink);
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  dd .none { color: var(--ink-soft); font-style: italic; font-family: 'IBM Plex Sans', sans-serif; }
+  dd .flag { color: var(--ok); font-weight: 600; }
+
+  pre.payload {
+    margin: 0;
+    padding: 12px 13px;
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+    background: var(--panel-sunk);
+    color: var(--ink);
+    max-height: 320px;
+    overflow: auto;
+    border-radius: 0 0 7px 7px;
+    tab-size: 2;
+  }
+  pre.payload .k { color: var(--tok-key); }
+  pre.payload .s { color: var(--tok-str); }
+  pre.payload .n { color: var(--tok-num); }
+  pre.payload .l { color: var(--tok-lit); }
+  .empty {
+    padding: 22px 13px 24px;
+    text-align: center;
+    color: var(--ink-soft);
+  }
+  .empty p { margin: 0; }
+  .empty .big {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    color: var(--ink-mid);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  button {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-mid);
+    background: var(--panel-sunk);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 3px 9px;
+    cursor: pointer;
+  }
+  button:hover { color: var(--ink); border-color: var(--ink-soft); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  ol.log {
+    margin: 0;
+    padding: 5px 13px 9px 13px;
+    list-style: none;
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  ol.log li {
+    display: grid;
+    grid-template-columns: 3.5ch 8ch minmax(0, 1fr);
+    gap: 10px;
+    color: var(--ink-mid);
+    font-variant-numeric: tabular-nums;
+    padding: 2px 0;
+  }
+  ol.log .seq { color: var(--ink-soft); }
+  ol.log .gap { color: var(--ink); }
+  ol.log .note { color: var(--ink-soft); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px 22px;
+  }
+  footer h3 {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 6px;
+  }
+  footer ol, footer ul { margin: 0; padding-left: 17px; color: var(--ink-mid); }
+  footer li { margin-bottom: 3px; }
+  footer code {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 0.5px 4px;
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">LangSmith · custom output rendering</p>
+    <h1>Output renderer probe</h1>
+    <p class="lede">
+      A throwaway renderer that shows exactly what LangSmith hands a custom output page.
+      Point a tracing project at this URL, open a trace, then click around the run tree.
+    </p>
+  </header>
+
+  <dl class="strip" id="strip">
+    <div>
+      <dt>Status</dt>
+      <dd><span class="pill is-wait" id="status"><span class="dot"></span>Waiting</span></dd>
+    </div>
+    <div>
+      <dt>Payload type</dt>
+      <dd class="mono" id="ptype">&mdash;</dd>
+    </div>
+    <div>
+      <dt>Messages</dt>
+      <dd id="count">0</dd>
+    </div>
+    <div>
+      <dt>Sender origin</dt>
+      <dd class="mono" id="origin">&mdash;</dd>
+    </div>
+  </dl>
+
+  <div class="cols">
+   <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>What arrived</h2>
+        <span class="panel-note" id="bytes"></span>
+      </div>
+      <dl class="facts" id="facts">
+        <div>
+          <dt>type</dt>
+          <dd><span class="none">no payload yet</span></dd>
+        </div>
+        <div>
+          <dt>data</dt>
+          <dd><span class="none">no payload yet</span></dd>
+        </div>
+        <div>
+          <dt>metadata<br>.inputs</dt>
+          <dd><span class="none">no payload yet</span></dd>
+        </div>
+        <div>
+          <dt>other<br>metadata</dt>
+          <dd><span class="none">no payload yet</span></dd>
+        </div>
+      </dl>
+    </section>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Delivery log</h2>
+      <span class="panel-note">LangSmith re-sends up to 6 times: 100, 200, 400, 800, 1600, 3200&thinsp;ms</span>
+    </div>
+    <ol class="log" id="log">
+      <li><span class="seq">&mdash;</span><span class="gap">&mdash;</span><span class="note">no deliveries recorded</span></li>
+    </ol>
+  </section>
+   </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Raw message</h2>
+        <button id="copy" type="button">Copy JSON</button>
+      </div>
+      <div id="payload-slot">
+        <div class="empty">
+          <p class="big">listening for postMessage</p>
+          <p>Nothing yet. If this stays empty after a trace opens, the page loaded but no message reached it.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div>
+      <h3>Try this in order</h3>
+      <ol>
+        <li>Open any trace in the project. The <em>Output</em> section becomes this page.</li>
+        <li>Click a child LLM or tool run in the tree. The payload should switch to that run.</li>
+        <li>Open the Output format dropdown and pick <code>Markdown</code>, then <code>Custom</code> again.</li>
+        <li>Drag the bar under this panel to resize it.</li>
+      </ol>
+    </div>
+    <div>
+      <h3>Expected</h3>
+      <ul>
+        <li><code>type</code> is <code>"output"</code> here; <code>"reference"</code> only for dataset reference outputs.</li>
+        <li>Inputs arrive as context under <code>metadata.inputs</code>, and are never themselves replaced.</li>
+        <li>Only the selected run's own payload arrives, never the child trace tree.</li>
+        <li>Message count resets on each run: the frame remounts per run, so this log covers the current run only.</li>
+      </ul>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var KNOWN = { output: 1, reference: 1 };
+    var elStatus = document.getElementById('status');
+    var elType = document.getElementById('ptype');
+    var elCount = document.getElementById('count');
+    var elOrigin = document.getElementById('origin');
+    var elBytes = document.getElementById('bytes');
+    var elFacts = document.getElementById('facts');
+    var elSlot = document.getElementById('payload-slot');
+    var elLog = document.getElementById('log');
+    var elCopy = document.getElementById('copy');
+
+    var count = 0;
+    var ignored = 0;
+    var firstAt = null;
+    var lastAt = null;
+    var lastJson = '';
+    var entries = [];
+
+    function esc(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function highlight(json) {
+      return esc(json).replace(
+        /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+        function (m) {
+          var cls = 'n';
+          if (/^"/.test(m)) cls = /:$/.test(m) ? 'k' : 's';
+          else if (/true|false|null/.test(m)) cls = 'l';
+          return '<span class="' + cls + '">' + m + '</span>';
+        }
+      );
+    }
+
+    function keyList(obj) {
+      if (obj === null || obj === undefined) return null;
+      if (typeof obj !== 'object') return { scalar: true, text: typeof obj };
+      if (Array.isArray(obj)) return { scalar: true, text: 'array(' + obj.length + ')' };
+      var k = Object.keys(obj);
+      return { scalar: false, keys: k };
+    }
+
+    function renderKeys(info, emptyLabel) {
+      if (!info) return '<span class="none">' + emptyLabel + '</span>';
+      if (info.scalar) return esc(info.text);
+      if (!info.keys.length) return '<span class="none">empty object</span>';
+      var shown = info.keys.slice(0, 8).map(esc).join(', ');
+      if (info.keys.length > 8) shown += ', +' + (info.keys.length - 8) + ' more';
+      return esc(info.keys.length) + ' key' + (info.keys.length === 1 ? '' : 's') + ': ' + shown;
+    }
+
+    function row(dt, ddHtml) {
+      return '<div><dt>' + dt + '</dt><dd>' + ddHtml + '</dd></div>';
+    }
+
+    function bytes(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1048576).toFixed(2) + ' MB';
+    }
+
+    function renderLog() {
+      if (!entries.length) return;
+      elLog.innerHTML = entries.slice(-8).map(function (e) {
+        return '<li><span class="seq">' + e.seq + '</span><span class="gap">' +
+          (e.gap === 0 ? '0 ms' : '+' + e.gap + ' ms') + '</span><span class="note">' +
+          esc(e.note) + '</span></li>';
+      }).join('');
+    }
+
+    window.addEventListener('message', function (event) {
+      var d = event.data;
+
+      if (!d || typeof d !== 'object' || !KNOWN[d.type]) {
+        ignored++;
+        return;
+      }
+
+      var now = Date.now();
+      if (firstAt === null) firstAt = now;
+      count++;
+
+      var json;
+      try {
+        json = JSON.stringify(d, null, 2);
+      } catch (err) {
+        json = '// payload could not be serialized: ' + String(err && err.message);
+      }
+
+      var changed = json !== lastJson;
+      entries.push({
+        seq: count,
+        gap: lastAt === null ? 0 : now - lastAt,
+        note: count === 1 ? 'first delivery' : (changed ? 'payload changed' : 'retry, identical payload')
+      });
+      lastAt = now;
+      lastJson = json;
+
+      elStatus.className = 'pill is-ok';
+      elStatus.innerHTML = '<span class="dot"></span>Receiving';
+      elType.textContent = d.type;
+      elCount.textContent = String(count) + (ignored ? ' (' + ignored + ' ignored)' : '');
+      elOrigin.textContent = event.origin || 'null';
+      elBytes.textContent = bytes(json.length) + ' of JSON';
+
+      var meta = (d.metadata && typeof d.metadata === 'object') ? d.metadata : null;
+      var inputsInfo = meta ? keyList(meta.inputs) : null;
+      var otherKeys = meta ? Object.keys(meta).filter(function (k) { return k !== 'inputs'; }) : [];
+
+      elFacts.innerHTML =
+        row('type', '<span class="flag">' + esc(d.type) + '</span>') +
+        row('data', renderKeys(keyList(d.data), 'absent')) +
+        row('metadata<br>.inputs', renderKeys(inputsInfo, meta ? 'absent' : 'no metadata')) +
+        row('other<br>metadata', otherKeys.length
+          ? otherKeys.map(esc).join(', ')
+          : '<span class="none">none sent</span>');
+
+      elSlot.innerHTML = '<pre class="payload" id="pre">' + highlight(json) + '</pre>';
+      renderLog();
+    });
+
+    elCopy.addEventListener('click', function () {
+      if (!lastJson) {
+        elCopy.textContent = 'Nothing yet';
+        setTimeout(function () { elCopy.textContent = 'Copy JSON'; }, 1400);
+        return;
+      }
+      var done = function (label) {
+        elCopy.textContent = label;
+        setTimeout(function () { elCopy.textContent = 'Copy JSON'; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(lastJson).then(function () { done('Copied'); }, function () { done('Select it instead'); });
+      } else {
+        done('Select it instead');
+      }
+    });
+  })();
+</script>
+</body>
+</html>
